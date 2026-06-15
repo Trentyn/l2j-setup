@@ -1,94 +1,124 @@
 # L2J Setup
 
-Скрипт для быстрого запуска сервера L2J Mobius High Five через Docker.
-
-## Что делает скрипт
-
-- Создает папку `~/l2j`.
-- Генерирует `docker-compose.yml`.
-- Запускает MariaDB.
-- Создает базы `l2jdb_game` и `l2jdb_login`.
-- Копирует SQL-файлы из Docker-образа сервера.
-- Загружает SQL в базы данных.
-- Запускает login и game серверы.
-- Показывает статус контейнеров и последние логи.
+Скрипты для быстрого запуска и управления сервером L2J Mobius High Five через Docker.
 
 ## Требования
 
-- Linux-сервер или VPS.
-- Установленный Docker.
-- Установленный Docker Compose plugin (`docker compose`).
-- Открытые порты:
-  - `2106` для login-сервера;
-  - `7777` для game-сервера;
-  - `3306` для MariaDB, если нужен внешний доступ к базе.
+- Только Docker на Linux-сервере или VPS.
 
-## Запуск
+Скрипты используют команду `docker compose`, которая входит в современную установку Docker.
+
+## Быстрый старт
 
 ```bash
-chmod +x l2j-setup.sh
+git clone <URL_РЕПОЗИТОРИЯ>
+cd l2j-setup
+chmod +x l2j-setup.sh l2j-manage.sh
 ./l2j-setup.sh
 ```
 
-После запуска скрипт выведет IP-адрес, который нужно указать в клиенте Lineage 2:
+После установки файлы сервера будут находиться в `~/l2j`, а основной compose-файл будет создан как `~/l2j/docker-compose.yml`.
+
+По умолчанию создаётся аккаунт:
+
+```text
+admin / admin
+```
+
+## Настройка клиента
+
+В клиенте Lineage 2 откройте файл:
+
+```text
+system/l2.ini
+```
+
+Укажите IP-адрес сервера в строке:
 
 ```ini
 ServerAddr=ВАШ_IP
 ```
 
-## Используемые образы
+## Порты
 
-- `sealbro/lineage2-server:chaotic-throne-high-five`
-- `mariadb:10.6`
+- `2106` - login server
+- `7777` - game server
 
-## Где будут файлы
+## Управление сервером
 
-Рабочая папка создается здесь:
-
-```bash
-~/l2j
-```
-
-Основной файл Docker Compose:
+Все команды выполняются из папки репозитория:
 
 ```bash
-~/l2j/docker-compose.yml
+./l2j-manage.sh <команда>
 ```
 
-## Полезные команды
-
-Посмотреть контейнеры:
+Запустить контейнеры:
 
 ```bash
-docker ps
+./l2j-manage.sh start
 ```
 
-Посмотреть логи login-сервера:
+Остановить контейнеры:
 
 ```bash
-docker logs l2j-login --tail 50
+./l2j-manage.sh stop
 ```
 
-Посмотреть логи game-сервера:
+Перезапустить контейнеры:
 
 ```bash
-docker logs l2j-game --tail 50
+./l2j-manage.sh restart
 ```
 
-Остановить сервер:
+Показать статус и последние 20 строк логов login и game:
+
+```bash
+./l2j-manage.sh status
+```
+
+Показать живые логи:
+
+```bash
+./l2j-manage.sh logs
+```
+
+Создать бэкап базы данных:
+
+```bash
+./l2j-manage.sh backup
+```
+
+Бэкапы сохраняются в:
+
+```text
+~/l2j/backups/backup_YYYYMMDD_HHMMSS.sql
+```
+
+Восстановить базу из последнего бэкапа:
+
+```bash
+./l2j-manage.sh restore
+```
+
+Создать аккаунт:
+
+```bash
+./l2j-manage.sh addaccount player1 password123
+```
+
+## Как обновить образ сервера
+
+Остановите сервер, скачайте свежий образ и запустите контейнеры снова:
+
+```bash
+./l2j-manage.sh stop
+docker pull sealbro/lineage2-server:chaotic-throne-high-five
+./l2j-manage.sh start
+```
+
+Если нужно полностью пересоздать контейнеры после обновления образа:
 
 ```bash
 cd ~/l2j
-docker compose down
+docker compose up -d --force-recreate
 ```
-
-Запустить сервер снова:
-
-```bash
-cd ~/l2j
-docker compose up -d
-```
-
-## Важно
-
-Пароли к базе данных сейчас заданы прямо в скрипте. Для публичного или постоянного сервера лучше изменить значения переменных `DB_ROOT_PASS`, `DB_USER` и `DB_PASS` перед запуском.

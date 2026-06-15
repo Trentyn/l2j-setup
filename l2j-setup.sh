@@ -2,33 +2,50 @@
 set -e
 
 # =============================================================
-# L2J Mobius High Five - Docker Setup Script
+# L2J Mobius High Five - скрипт установки через Docker
 # =============================================================
 
 IMAGE="sealbro/lineage2-server:chaotic-throne-high-five"
 DB_IMAGE="mariadb:10.6"
 DIR="$HOME/l2j"
+DB_NAME="l2jmobiush5"
 SQL_TMP="/tmp/l2sql"
 
-DB_ROOT_PASS="l2jroot"
-DB_USER="l2jdb"
-DB_PASS="l2jdb"
-DB_GAME="l2jdb_game"
-DB_LOGIN="l2jdb_login"
+log() {
+  echo "==> $1"
+}
 
-echo "==> Создаём папку $DIR"
-mkdir -p "$DIR"
+fail() {
+  echo "Ошибка: $1" >&2
+  exit 1
+}
 
-echo "==> Создаём docker-compose.yml"
-cat > "$DIR/docker-compose.yml" << EOF
+run_step() {
+  local name="$1"
+  shift
+
+  "$@" || fail "$name"
+}
+
+check_dependencies() {
+  log "Проверяем зависимости"
+  command -v docker >/dev/null 2>&1 || fail "Docker не найден. Установите Docker и повторите запуск."
+  docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin не найден. Установите Docker с поддержкой 'docker compose'."
+}
+
+create_compose() {
+  log "Создаём папку $DIR"
+  mkdir -p "$DIR" || fail "Не удалось создать папку $DIR"
+
+  log "Создаём docker-compose.yml"
+  if ! cat > "$DIR/docker-compose.yml" << EOF
 services:
   db:
     image: $DB_IMAGE
     container_name: l2j-db
     environment:
-      MYSQL_ROOT_PASSWORD: $DB_ROOT_PASS
-      MYSQL_USER: $DB_USER
-      MYSQL_PASSWORD: $DB_PASS
+      MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "yes"
+      MARIADB_ROOT_HOST: "%"
     ports:
       - "3306:3306"
     volumes:
@@ -41,10 +58,6 @@ services:
     environment:
       DB_HOST: localhost
       DB_PORT: 3306
-      DB_USER: $DB_USER
-      DB_PASSWORD: $DB_PASS
-      DB_NAME_GAME: $DB_GAME
-      DB_NAME_LOGIN: $DB_LOGIN
     depends_on:
       - db
     command: login
@@ -56,10 +69,6 @@ services:
     environment:
       DB_HOST: localhost
       DB_PORT: 3306
-      DB_USER: $DB_USER
-      DB_PASSWORD: $DB_PASS
-      DB_NAME_GAME: $DB_GAME
-      DB_NAME_LOGIN: $DB_LOGIN
     depends_on:
       - login
     command: game
@@ -67,68 +76,111 @@ services:
 volumes:
   l2jdb:
 EOF
+  then
+    fail "Не удалось записать файл $DIR/docker-compose.yml"
+  fi
+}
 
-echo "==> Скачиваем образы"
-docker pull "$IMAGE"
-docker pull "$DB_IMAGE"
+pull_images() {
+  log "Скачиваем Docker-образы"
+  docker pull "$IMAGE" || fail "Не удалось скачать образ сервера $IMAGE"
+  docker pull "$DB_IMAGE" || fail "Не удалось скачать образ базы данных $DB_IMAGE"
+}
 
-echo "==> Запускаем MariaDB"
-cd "$DIR" && docker compose up -d db
+start_db() {
+  log "Запускаем MariaDB"
+  cd "$DIR" || fail "Не удалось перейти в папку $DIR"
+  docker compose up -d db || fail "Не удалось запустить MariaDB"
 
-echo "==> Ждём пока MariaDB поднимется (15 сек)..."
-sleep 15
+  log "Ждём пока MariaDB поднимется (15 сек)..."
+  sleep 15
+}
 
-echo "==> Создаём базы данных и пользователя"
-docker exec l2j-db mysql -uroot -p"$DB_ROOT_PASS" -e "
-  CREATE DATABASE IF NOT EXISTS $DB_GAME;
-  CREATE DATABASE IF NOT EXISTS $DB_LOGIN;
-  GRANT ALL PRIVILEGES ON $DB_GAME.* TO '$DB_USER'@'%';
-  GRANT ALL PRIVILEGES ON $DB_LOGIN.* TO '$DB_USER'@'%';
-  FLUSH PRIVILEGES;
-"
+init_db() {
+  log "Создаём базу данных $DB_NAME и права root"
+  docker exec l2j-db mysql -uroot -e "
+    CREATE DATABASE IF NOT EXISTS $DB_NAME;
+    ALTER USER 'root'@'%' IDENTIFIED BY '';
+    GRANT ALL ON $DB_NAME.* TO 'root'@'%';
+    FLUSH PRIVILEGES;
+  " || fail "Не удалось инициализировать базу данных $DB_NAME"
+}
 
-echo "==> Копируем SQL файлы из образа"
-rm -rf "$SQL_TMP"
-mkdir -p "$SQL_TMP"
-docker run --rm --entrypoint /bin/sh \
-  -v "$SQL_TMP:/output" \
-  "$IMAGE" \
-  -c "cp -r /app/db_installer/sql/login /output/ && cp -r /app/db_installer/sql/game /output/"
+import_sql() {
+  log "Копируем SQL-файлы из образа"
+  rm -rf "$SQL_TMP" || fail "Не удалось очистить временную папку $SQL_TMP"
+  mkdir -p "$SQL_TMP" || fail "Не удалось создать временную папку $SQL_TMP"
+  docker run --rm --entrypoint /bin/sh \
+    -v "$SQL_TMP:/output" \
+    "$IMAGE" \
+    -c "cp -r /app/db_installer/sql/login /output/ && cp -r /app/db_installer/sql/game /output/" \
+    || fail "Не удалось скопировать SQL-файлы из образа"
 
-echo "==> Заливаем SQL в БД"
-docker run --rm --network host \
-  -v "$SQL_TMP:/sql" \
-  "$DB_IMAGE" bash -c "
-    for f in /sql/login/*.sql; do
-      mysql -h127.0.0.1 -u$DB_USER -p$DB_PASS $DB_LOGIN < \$f 2>/dev/null || true
-    done
-    for f in /sql/game/*.sql; do
-      mysql -h127.0.0.1 -u$DB_USER -p$DB_PASS $DB_GAME < \$f 2>/dev/null || true
-    done
-    echo SQL_DONE"
+  log "Заливаем SQL в базу $DB_NAME"
+  docker run --rm --network host \
+    -v "$SQL_TMP:/sql" \
+    "$DB_IMAGE" bash -c "
+      for f in /sql/login/*.sql; do
+        mysql -h127.0.0.1 -uroot $DB_NAME < \$f 2>/dev/null || true
+      done
+      for f in /sql/game/*.sql; do
+        mysql -h127.0.0.1 -uroot $DB_NAME < \$f 2>/dev/null || true
+      done
+      echo SQL_DONE" \
+    || fail "Не удалось импортировать SQL-файлы в базу $DB_NAME"
+}
 
-echo "==> Запускаем login и game серверы"
-cd "$DIR" && docker compose up -d login game
+create_admin_account() {
+  log "Создаём дефолтный аккаунт admin/admin"
+  docker exec l2j-db mysql -uroot "$DB_NAME" -e "
+    INSERT INTO accounts (login, password, accessLevel)
+    VALUES ('admin', MD5('admin'), 0)
+    ON DUPLICATE KEY UPDATE password = MD5('admin'), accessLevel = 0;
+  " || fail "Не удалось создать аккаунт admin/admin"
+}
 
-echo "==> Ждём запуска (10 сек)..."
-sleep 10
+start_servers() {
+  log "Запускаем login и game серверы"
+  cd "$DIR" || fail "Не удалось перейти в папку $DIR"
+  docker compose up -d login game || fail "Не удалось запустить login и game серверы"
 
-echo "==> Статус контейнеров:"
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  log "Ждём запуска (10 сек)..."
+  sleep 10
+}
 
-echo ""
-echo "==> Логи login сервера:"
-docker logs l2j-login --tail 10
+show_status() {
+  log "Статус контейнеров:"
+  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || fail "Не удалось получить статус контейнеров"
 
-echo ""
-echo "==> Логи game сервера:"
-docker logs l2j-game --tail 10
+  echo ""
+  log "Логи login сервера:"
+  docker logs l2j-login --tail 10 || fail "Не удалось получить логи login сервера"
 
-echo ""
-echo "============================================"
-echo " L2J High Five запущен!"
-echo " В клиенте (system/l2.ini) укажи:"
-EXT_IP=$(curl -s ifconfig.me 2>/dev/null || echo "ВАШ_IP")
-echo " ServerAddr=$EXT_IP"
-echo " Порты: 2106 (login), 7777 (game)"
-echo "============================================"
+  echo ""
+  log "Логи game сервера:"
+  docker logs l2j-game --tail 10 || fail "Не удалось получить логи game сервера"
+
+  echo ""
+  echo "============================================"
+  echo " L2J High Five запущен!"
+  echo " В клиенте (system/l2.ini) укажи:"
+  EXT_IP=$(curl -s ifconfig.me 2>/dev/null || echo "ВАШ_IP")
+  echo " ServerAddr=$EXT_IP"
+  echo " Порты: 2106 (login), 7777 (game)"
+  echo " Аккаунт по умолчанию: admin/admin"
+  echo "============================================"
+}
+
+main() {
+  run_step "Проверка зависимостей завершилась ошибкой" check_dependencies
+  run_step "Создание docker-compose.yml завершилось ошибкой" create_compose
+  run_step "Скачивание образов завершилось ошибкой" pull_images
+  run_step "Запуск MariaDB завершился ошибкой" start_db
+  run_step "Инициализация базы завершилась ошибкой" init_db
+  run_step "Импорт SQL завершился ошибкой" import_sql
+  run_step "Создание аккаунта admin/admin завершилось ошибкой" create_admin_account
+  run_step "Запуск серверов завершился ошибкой" start_servers
+  run_step "Показ статуса завершился ошибкой" show_status
+}
+
+main "$@"
