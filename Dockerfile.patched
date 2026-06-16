@@ -1,3 +1,7 @@
 FROM sealbro/lineage2-server:chaotic-throne-high-five
 
 COPY patches/Q00255_Tutorial/Q00255_Tutorial.java /app/game/data/scripts/quests/Q00255_Tutorial/Q00255_Tutorial.java
+RUN sed -i '/\/\/ Skip tutorial links./,+4d' /app/game/data/scripts/handlers/bypasshandlers/QuestLink.java
+RUN sed -i '/VALID_LINKS.add("teleporter\/separatedsoul.htm");/i \		VALID_LINKS.add("30598-f20-01.htm");' /app/game/data/scripts/handlers/bypasshandlers/Link.java
+RUN sed -i 's|<a action="link COXX">Ask me next time.</a>|<a action="bypass -h npc_%objectId%_Chat 0">Ask me next time.</a>|' /app/game/data/html/classmaster/tutorialtemplate.htm
+RUN sed -i 's|^a action="link 30598-f20-01.htm">Return</a>|<a action="link 30598-f20-01.htm">Return</a>|' /app/game/data/scripts/ai/others/NewbieGuide/30598-f20-011.htm
