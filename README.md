@@ -111,6 +111,12 @@ ServerAddr=ВАШ_IP
 ./l2j-manage.sh addaccount player1 password123
 ```
 
+Сменить пароль аккаунта:
+
+```bash
+./l2j-manage.sh setpassword admin новый_пароль
+```
+
 ## Как обновить образ сервера
 
 Остановите сервер, скачайте свежий образ и запустите контейнеры снова:

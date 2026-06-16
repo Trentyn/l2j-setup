@@ -144,8 +144,8 @@ create_admin_account() {
   log "Создаём дефолтный аккаунт admin/admin"
   docker exec l2j-db mysql -uroot "$DB_NAME" -e "
     INSERT INTO accounts (login, password, accessLevel)
-    VALUES ('admin', MD5('admin'), 0)
-    ON DUPLICATE KEY UPDATE password = MD5('admin'), accessLevel = 0;
+    VALUES ('admin', TO_BASE64(UNHEX(SHA1('admin'))), 0)
+    ON DUPLICATE KEY UPDATE password = TO_BASE64(UNHEX(SHA1('admin'))), accessLevel = 0;
   " || fail "Не удалось создать аккаунт admin/admin"
 }
 
