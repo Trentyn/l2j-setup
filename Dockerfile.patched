@@ -1,0 +1,3 @@
+FROM sealbro/lineage2-server:chaotic-throne-high-five
+
+COPY patches/Q00255_Tutorial/Q00255_Tutorial.java /app/game/data/scripts/quests/Q00255_Tutorial/Q00255_Tutorial.java

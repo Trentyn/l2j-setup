@@ -5,9 +5,13 @@ set -e
 # L2J Mobius High Five - скрипт управления сервером
 # =============================================================
 
-IMAGE="sealbro/lineage2-server:chaotic-throne-high-five"
+IMAGE="l2j-mobius-h5:patched"
 DB_IMAGE="mariadb:10.6"
-DIR="$HOME/l2j"
+USER_HOME="$HOME"
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+  USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+fi
+DIR="$USER_HOME/l2j"
 DB_NAME="l2jmobiush5"
 BACKUP_DIR="$DIR/backups"
 

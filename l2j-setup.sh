@@ -5,9 +5,14 @@ set -e
 # L2J Mobius High Five - скрипт установки через Docker
 # =============================================================
 
-IMAGE="sealbro/lineage2-server:chaotic-throne-high-five"
+BASE_IMAGE="sealbro/lineage2-server:chaotic-throne-high-five"
+IMAGE="l2j-mobius-h5:patched"
 DB_IMAGE="mariadb:10.6"
-DIR="$HOME/l2j"
+USER_HOME="$HOME"
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+  USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+fi
+DIR="$USER_HOME/l2j"
 DB_NAME="l2jmobiush5"
 SQL_TMP="/tmp/l2sql"
 
@@ -83,8 +88,13 @@ EOF
 
 pull_images() {
   log "Скачиваем Docker-образы"
-  docker pull "$IMAGE" || fail "Не удалось скачать образ сервера $IMAGE"
+  docker pull "$BASE_IMAGE" || fail "Не удалось скачать образ сервера $BASE_IMAGE"
   docker pull "$DB_IMAGE" || fail "Не удалось скачать образ базы данных $DB_IMAGE"
+}
+
+build_server_image() {
+  log "Собираем локальный образ сервера с патчами"
+  docker build -f Dockerfile.patched -t "$IMAGE" . || fail "Не удалось собрать локальный образ сервера $IMAGE"
 }
 
 start_db() {
@@ -175,6 +185,7 @@ main() {
   run_step "Проверка зависимостей завершилась ошибкой" check_dependencies
   run_step "Создание docker-compose.yml завершилось ошибкой" create_compose
   run_step "Скачивание образов завершилось ошибкой" pull_images
+  run_step "Сборка локального образа завершилась ошибкой" build_server_image
   run_step "Запуск MariaDB завершился ошибкой" start_db
   run_step "Инициализация базы завершилась ошибкой" init_db
   run_step "Импорт SQL завершился ошибкой" import_sql
